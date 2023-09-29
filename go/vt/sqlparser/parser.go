@@ -22,16 +22,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
 	"vitess.io/vitess/go/vt/log"
 	"vitess.io/vitess/go/vt/vterrors"
 
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
 
-const defaultMySQLServerVersion = "8.0.30-Vitess"
-
 var versionFlagSync sync.Once
+
+const defaultMySQLServerVersion = "8.0.30-Vitess"
 
 // parserPool is a pool for parser objects.
 var parserPool = sync.Pool{
@@ -256,7 +255,7 @@ func SplitStatement(blob string) (string, string, error) {
 		return "", "", tokenizer.LastError
 	}
 	if tkn == ';' {
-		return blob[:tokenizer.Pos-1], blob[tokenizer.Pos:], nil
+		return blob[:tokenizer.absoluteStart()-1], blob[tokenizer.absoluteStart():], nil
 	}
 	return blob, "", nil
 }
@@ -287,14 +286,14 @@ loop:
 		tkn, _ = tokenizer.Scan()
 		switch tkn {
 		case ';':
-			stmt = blob[stmtBegin : tokenizer.Pos-1]
+			stmt = blob[stmtBegin : tokenizer.absoluteStart()-1]
 			if !emptyStatement {
 				pieces = append(pieces, stmt)
 				emptyStatement = true
 			}
-			stmtBegin = tokenizer.Pos
+			stmtBegin = tokenizer.absoluteStart()
 		case 0, eofChar:
-			blobTail := tokenizer.Pos - 1
+			blobTail := tokenizer.absoluteStart() - 1
 			if stmtBegin < blobTail {
 				stmt = blob[stmtBegin : blobTail+1]
 				if !emptyStatement {

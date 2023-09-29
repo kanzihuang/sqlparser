@@ -18,6 +18,8 @@ package sqlparser
 
 import (
 	"fmt"
+	"github.com/kanzihuang/vitess/go/vt/sqlparser/internal"
+	"io"
 	"strconv"
 	"strings"
 
@@ -44,8 +46,7 @@ type Tokenizer struct {
 	multi          bool
 	specialComment *Tokenizer
 
-	Pos int
-	buf string
+	buf *internal.Buffer
 }
 
 // NewStringTokenizer creates a new Tokenizer for the
@@ -54,7 +55,18 @@ func NewStringTokenizer(sql string) *Tokenizer {
 	checkParserVersionFlag()
 
 	return &Tokenizer{
-		buf:      sql,
+		buf:      internal.NewStringBuffer(sql),
+		BindVars: make(map[string]struct{}),
+	}
+}
+
+// NewReaderTokenizer creates a new Tokenizer for the
+// sql reader.
+func NewReaderTokenizer(reader io.Reader) *Tokenizer {
+	checkParserVersionFlag()
+
+	return &Tokenizer{
+		buf:      internal.NewReaderBuffer(reader),
 		BindVars: make(map[string]struct{}),
 	}
 }
@@ -101,7 +113,7 @@ func (p PositionedErr) Error() string {
 
 // Error is called by go yacc if there's a parsing error.
 func (tkn *Tokenizer) Error(err string) {
-	tkn.LastError = PositionedErr{Err: err, Pos: tkn.Pos + 1, Near: tkn.lastToken}
+	tkn.LastError = PositionedErr{Err: err, Pos: tkn.absolutePos() + 1, Near: tkn.lastToken}
 
 	// Try and re-sync to the next statement
 	tkn.skipStatement()
@@ -188,55 +200,64 @@ func (tkn *Tokenizer) Scan() (int, string) {
 			return tkn.scanNumber()
 		}
 
-		tkn.skip(1)
 		switch ch {
 		case '=', ',', '(', ')', '+', '*', '%', '^', '~':
+			tkn.skip(1)
 			return int(ch), ""
 		case '&':
+			tkn.skip(1)
 			if tkn.cur() == '&' {
 				tkn.skip(1)
 				return AND, ""
 			}
 			return int(ch), ""
 		case '|':
+			tkn.skip(1)
 			if tkn.cur() == '|' {
 				tkn.skip(1)
 				return OR, ""
 			}
 			return int(ch), ""
 		case '?':
+			tkn.skip(1)
 			tkn.posVarIndex++
 			buf := make([]byte, 0, 8)
 			buf = append(buf, ":v"...)
 			buf = strconv.AppendInt(buf, int64(tkn.posVarIndex), 10)
 			return VALUE_ARG, string(buf)
 		case '.':
+			tkn.skip(1)
 			return int(ch), ""
 		case '/':
+			tkn.next()
 			switch tkn.cur() {
 			case '/':
-				tkn.skip(1)
-				return tkn.scanCommentType1(2)
+				tkn.next()
+				return tkn.scanCommentType1()
 			case '*':
-				tkn.skip(1)
+				tkn.next()
 				if tkn.cur() == '!' && !tkn.SkipSpecialComments {
-					tkn.skip(1)
+					tkn.next()
 					return tkn.scanMySQLSpecificComment()
 				}
 				return tkn.scanCommentType2()
 			default:
+				tkn.skip(0)
 				return int(ch), ""
 			}
 		case '#':
-			return tkn.scanCommentType1(1)
+			tkn.next()
+			return tkn.scanCommentType1()
 		case '-':
+			tkn.next()
 			switch tkn.cur() {
 			case '-':
 				nextChar := tkn.peek(1)
 				if nextChar == ' ' || nextChar == '\n' || nextChar == '\t' || nextChar == '\r' || nextChar == eofChar {
-					tkn.skip(1)
-					return tkn.scanCommentType1(2)
+					tkn.next()
+					return tkn.scanCommentType1()
 				}
+				tkn.skip(0)
 			case '>':
 				tkn.skip(1)
 				if tkn.cur() == '>' {
@@ -245,8 +266,10 @@ func (tkn *Tokenizer) Scan() (int, string) {
 				}
 				return JSON_EXTRACT_OP, ""
 			}
+			tkn.skip(0)
 			return int(ch), ""
 		case '<':
+			tkn.skip(1)
 			switch tkn.cur() {
 			case '>':
 				tkn.skip(1)
@@ -267,6 +290,7 @@ func (tkn *Tokenizer) Scan() (int, string) {
 				return int(ch), ""
 			}
 		case '>':
+			tkn.skip(1)
 			switch tkn.cur() {
 			case '=':
 				tkn.skip(1)
@@ -278,16 +302,20 @@ func (tkn *Tokenizer) Scan() (int, string) {
 				return int(ch), ""
 			}
 		case '!':
+			tkn.skip(1)
 			if tkn.cur() == '=' {
 				tkn.skip(1)
 				return NE, ""
 			}
 			return int(ch), ""
 		case '\'', '"':
+			tkn.skip(1)
 			return tkn.scanString(ch, STRING)
 		case '`':
+			tkn.skip(1)
 			return tkn.scanLiteralIdentifier()
 		default:
+			tkn.skip(1)
 			return LEX_ERROR, string(byte(ch))
 		}
 	}
@@ -315,17 +343,14 @@ func (tkn *Tokenizer) skipBlank() {
 
 // scanIdentifier scans a language keyword or @-encased variable
 func (tkn *Tokenizer) scanIdentifier(isVariable bool) (int, string) {
-	start := tkn.Pos
-	tkn.skip(1)
-
 	for {
+		tkn.next()
 		ch := tkn.cur()
 		if !isLetter(ch) && !isDigit(ch) && !(isVariable && isCarat(ch)) {
 			break
 		}
-		tkn.skip(1)
 	}
-	keywordName := tkn.buf[start:tkn.Pos]
+	keywordName := tkn.read()
 	if keywordID, found := keywordLookupTable.LookupString(keywordName); found {
 		return keywordID, keywordName
 	}
@@ -338,9 +363,8 @@ func (tkn *Tokenizer) scanIdentifier(isVariable bool) (int, string) {
 
 // scanHex scans a hex numeral; assumes x' or X' has already been scanned
 func (tkn *Tokenizer) scanHex() (int, string) {
-	start := tkn.Pos
 	tkn.scanMantissa(16)
-	hex := tkn.buf[start:tkn.Pos]
+	hex := tkn.read()
 	if tkn.cur() != '\'' {
 		return LEX_ERROR, hex
 	}
@@ -353,9 +377,8 @@ func (tkn *Tokenizer) scanHex() (int, string) {
 
 // scanBitLiteral scans a binary numeric literal; assumes b' or B' has already been scanned
 func (tkn *Tokenizer) scanBitLiteral() (int, string) {
-	start := tkn.Pos
 	tkn.scanMantissa(2)
-	bit := tkn.buf[start:tkn.Pos]
+	bit := tkn.read()
 	if tkn.cur() != '\'' {
 		return LEX_ERROR, bit
 	}
@@ -400,41 +423,41 @@ func (tkn *Tokenizer) scanLiteralIdentifierSlow(buf *strings.Builder) (int, stri
 // is a simple literal, it'll be returned as a slice of the input buffer. If the identifier
 // contains escape sequences, this function will fall back to scanLiteralIdentifierSlow
 func (tkn *Tokenizer) scanLiteralIdentifier() (int, string) {
-	start := tkn.Pos
+	//start := tkn.Pos
 	for {
 		switch tkn.cur() {
 		case '`':
 			if tkn.peek(1) != '`' {
-				if tkn.Pos == start {
+				id := tkn.read()
+				if len(id) == 0 {
 					return LEX_ERROR, ""
 				}
 				tkn.skip(1)
-				return ID, tkn.buf[start : tkn.Pos-1]
+				return ID, id
 			}
 
 			var buf strings.Builder
-			buf.WriteString(tkn.buf[start:tkn.Pos])
+			buf.WriteString(tkn.read())
 			tkn.skip(1)
 			return tkn.scanLiteralIdentifierSlow(&buf)
 		case eofChar:
 			// Premature EOF.
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			return LEX_ERROR, tkn.read()
 		default:
-			tkn.skip(1)
+			tkn.next()
 		}
 	}
 }
 
 // scanBindVarOrAssignmentExpression scans a bind variable or an assignment expression; assumes a ':' has been scanned right before
 func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
-	start := tkn.Pos
 	token := VALUE_ARG
 
-	tkn.skip(1)
+	tkn.next()
 	// If : is followed by a digit, then it is an offset value arg. Example - :1, :10
 	if isDigit(tkn.cur()) {
 		tkn.scanMantissa(10)
-		return OFFSET_ARG, tkn.buf[start+1 : tkn.Pos]
+		return OFFSET_ARG, tkn.read()[1:]
 	}
 
 	// If : is followed by a =, then it is an assignment operator
@@ -446,10 +469,10 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 	// If : is followed by another : it is a list arg. Example ::v1, ::list
 	if tkn.cur() == ':' {
 		token = LIST_ARG
-		tkn.skip(1)
+		tkn.next()
 	}
 	if !isLetter(tkn.cur()) {
-		return LEX_ERROR, tkn.buf[start:tkn.Pos]
+		return LEX_ERROR, tkn.read()
 	}
 	// If : is followed by a letter, it is a bindvariable. Example :v1, :v2
 	for {
@@ -457,43 +480,42 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 		if !isLetter(ch) && !isDigit(ch) && ch != '.' {
 			break
 		}
-		tkn.skip(1)
+		tkn.next()
 	}
-	return token, tkn.buf[start:tkn.Pos]
+	return token, tkn.read()
 }
 
 // scanMantissa scans a sequence of numeric characters with the same base.
 // This is a helper function only called from the numeric scanners
 func (tkn *Tokenizer) scanMantissa(base int) {
 	for digitVal(tkn.cur()) < base {
-		tkn.skip(1)
+		tkn.next()
 	}
 }
 
 // scanNumber scans any SQL numeric literal, either floating point or integer
 func (tkn *Tokenizer) scanNumber() (int, string) {
-	start := tkn.Pos
 	token := INTEGRAL
 
 	if tkn.cur() == '.' {
 		token = DECIMAL
-		tkn.skip(1)
+		tkn.next()
 		tkn.scanMantissa(10)
 		goto exponent
 	}
 
 	// 0x construct.
 	if tkn.cur() == '0' {
-		tkn.skip(1)
+		tkn.next()
 		if tkn.cur() == 'x' || tkn.cur() == 'X' {
 			token = HEXNUM
-			tkn.skip(1)
+			tkn.next()
 			tkn.scanMantissa(16)
 			goto exit
 		}
 		if tkn.cur() == 'b' || tkn.cur() == 'B' {
 			token = BITNUM
-			tkn.skip(1)
+			tkn.next()
 			tkn.scanMantissa(2)
 			goto exit
 		}
@@ -503,16 +525,16 @@ func (tkn *Tokenizer) scanNumber() (int, string) {
 
 	if tkn.cur() == '.' {
 		token = DECIMAL
-		tkn.skip(1)
+		tkn.next()
 		tkn.scanMantissa(10)
 	}
 
 exponent:
 	if tkn.cur() == 'e' || tkn.cur() == 'E' {
 		token = FLOAT
-		tkn.skip(1)
+		tkn.next()
 		if tkn.cur() == '+' || tkn.cur() == '-' {
-			tkn.skip(1)
+			tkn.next()
 		}
 		tkn.scanMantissa(10)
 	}
@@ -521,7 +543,8 @@ exit:
 	if isLetter(tkn.cur()) {
 		// A letter cannot immediately follow a float number.
 		if token == FLOAT || token == DECIMAL {
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			return LEX_ERROR, tkn.read()
 		}
 		// A letter seen after a few numbers means that we should parse this
 		// as an identifier and not a number.
@@ -530,12 +553,12 @@ exit:
 			if !isLetter(ch) && !isDigit(ch) {
 				break
 			}
-			tkn.skip(1)
+			tkn.next()
 		}
-		return ID, tkn.buf[start:tkn.Pos]
+		return ID, tkn.read()
 	}
 
-	return token, tkn.buf[start:tkn.Pos]
+	return token, tkn.read()
 }
 
 // scanString scans a string surrounded by the given `delim`, which can be
@@ -543,27 +566,31 @@ exit:
 // been scanned. If the skin contains any escape sequences, this function
 // will fall back to scanStringSlow
 func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
-	start := tkn.Pos
-
+	var sb strings.Builder
 	for {
-		switch tkn.cur() {
+		switch char := tkn.cur(); char {
 		case delim:
 			if tkn.peek(1) != delim {
+				sb.WriteString(tkn.read())
 				tkn.skip(1)
-				return typ, tkn.buf[start : tkn.Pos-1]
+				return typ, sb.String()
 			}
 			fallthrough
 
 		case '\\':
-			var buffer strings.Builder
-			buffer.WriteString(tkn.buf[start:tkn.Pos])
-			return tkn.scanStringSlow(&buffer, delim, typ)
+			sb.WriteString(tkn.buf.Read())
+			return tkn.scanStringSlow(&sb, delim, typ)
 
 		case eofChar:
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
-		}
+			sb.WriteString(tkn.buf.Read())
+			return LEX_ERROR, sb.String()
 
-		tkn.skip(1)
+		default:
+			tkn.next()
+			if tkn.buf.HalfFull() {
+				sb.WriteString(tkn.buf.Read())
+			}
+		}
 	}
 }
 
@@ -580,19 +607,19 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 
 		if ch != delim && ch != '\\' {
 			// Scan ahead to the next interesting character.
-			start := tkn.Pos
-			for ; tkn.Pos < len(tkn.buf); tkn.Pos++ {
-				ch = uint16(tkn.buf[tkn.Pos])
-				if ch == delim || ch == '\\' {
+			tkn.next()
+			for {
+				ch = tkn.cur()
+				if ch == delim || ch == '\\' || ch == eofChar {
 					break
 				}
+				tkn.next()
 			}
 
-			buffer.WriteString(tkn.buf[start:tkn.Pos])
-			if tkn.Pos >= len(tkn.buf) {
+			buffer.WriteString(tkn.read())
+			if ch == eofChar {
 				// Reached the end of the buffer without finding a delim or
 				// escape character.
-				tkn.skip(1)
 				continue
 			}
 		}
@@ -627,58 +654,57 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 // scanCommentType1 scans a SQL line-comment, which is applied until the end
 // of the line. The given prefix length varies based on whether the comment
 // is started with '//', '--' or '#'.
-func (tkn *Tokenizer) scanCommentType1(prefixLen int) (int, string) {
-	start := tkn.Pos - prefixLen
+func (tkn *Tokenizer) scanCommentType1() (int, string) {
 	for tkn.cur() != eofChar {
 		if tkn.cur() == '\n' {
-			tkn.skip(1)
+			tkn.next()
 			break
 		}
-		tkn.skip(1)
+		tkn.next()
 	}
-	return COMMENT, tkn.buf[start:tkn.Pos]
+	return COMMENT, tkn.read()
 }
 
 // scanCommentType2 scans a '/*' delimited comment; assumes the opening
 // prefix has already been scanned
 func (tkn *Tokenizer) scanCommentType2() (int, string) {
-	start := tkn.Pos - 2
 	for {
 		if tkn.cur() == '*' {
-			tkn.skip(1)
+			tkn.next()
 			if tkn.cur() == '/' {
-				tkn.skip(1)
+				tkn.next()
 				break
 			}
 			continue
 		}
 		if tkn.cur() == eofChar {
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			return LEX_ERROR, tkn.read()
 		}
-		tkn.skip(1)
+		tkn.next()
 	}
-	return COMMENT, tkn.buf[start:tkn.Pos]
+	return COMMENT, tkn.read()
 }
 
 // scanMySQLSpecificComment scans a MySQL comment pragma, which always starts with '//*`
 func (tkn *Tokenizer) scanMySQLSpecificComment() (int, string) {
-	start := tkn.Pos - 3
 	for {
 		if tkn.cur() == '*' {
-			tkn.skip(1)
+			tkn.next()
 			if tkn.cur() == '/' {
-				tkn.skip(1)
+				tkn.next()
 				break
 			}
 			continue
 		}
 		if tkn.cur() == eofChar {
-			return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
+			return LEX_ERROR, tkn.read()
 		}
-		tkn.skip(1)
+		tkn.next()
 	}
 
-	commentVersion, sql := ExtractMysqlComment(tkn.buf[start:tkn.Pos])
+	commentVersion, sql := ExtractMysqlComment(tkn.read())
 
 	if mySQLParserVersion >= commentVersion {
 		// Only add the special comment to the tokenizer if the version of MySQL is higher or equal to the comment version
@@ -686,21 +712,6 @@ func (tkn *Tokenizer) scanMySQLSpecificComment() (int, string) {
 	}
 
 	return tkn.Scan()
-}
-
-func (tkn *Tokenizer) cur() uint16 {
-	return tkn.peek(0)
-}
-
-func (tkn *Tokenizer) skip(dist int) {
-	tkn.Pos += dist
-}
-
-func (tkn *Tokenizer) peek(dist int) uint16 {
-	if tkn.Pos+dist >= len(tkn.buf) {
-		return eofChar
-	}
-	return uint16(tkn.buf[tkn.Pos+dist])
 }
 
 // reset clears any internal state.
