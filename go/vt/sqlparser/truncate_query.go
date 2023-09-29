@@ -16,12 +16,6 @@ limitations under the License.
 
 package sqlparser
 
-import (
-	"github.com/spf13/pflag"
-
-	"vitess.io/vitess/go/vt/servenv"
-)
-
 var (
 	// truncateUILen truncate queries in debug UIs to the given length. 0 means unlimited.
 	truncateUILen = 512
@@ -32,25 +26,15 @@ var (
 
 const TruncationText = "[TRUNCATED]"
 
-func registerQueryTruncationFlags(fs *pflag.FlagSet) {
-	fs.IntVar(&truncateUILen, "sql-max-length-ui", truncateUILen, "truncate queries in debug UIs to the given length (default 512)")
-	fs.IntVar(&truncateErrLen, "sql-max-length-errors", truncateErrLen, "truncate queries in error logs to the given length (default unlimited)")
+// GetTruncateUILen is a function used to read the value of truncateUILen
+func GetTruncateUILen() int {
+	return truncateErrLen
 }
 
-func init() {
-	for _, cmd := range []string{
-		"vtgate",
-		"vttablet",
-		"vtcombo",
-		"vtctld",
-		"vtctl",
-		"vtexplain",
-		"vtbackup",
-		"vttestserver",
-		"vtbench",
-	} {
-		servenv.OnParseFor(cmd, registerQueryTruncationFlags)
-	}
+// SetTruncateUILen is a function used to override the value of truncateUILen
+// It is only meant to be used from tests and not from production code.
+func SetTruncateUILen(uiLen int) {
+	truncateErrLen = uiLen
 }
 
 // GetTruncateErrLen is a function used to read the value of truncateErrLen

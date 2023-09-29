@@ -23,13 +23,13 @@ import (
 	"strings"
 	"sync"
 
-	"vitess.io/vitess/go/internal/flag"
 	"vitess.io/vitess/go/vt/log"
-	"vitess.io/vitess/go/vt/servenv"
 	"vitess.io/vitess/go/vt/vterrors"
 
 	vtrpcpb "vitess.io/vitess/go/vt/proto/vtrpc"
 )
+
+const defaultMySQLServerVersion = "8.0.30-Vitess"
 
 var versionFlagSync sync.Once
 
@@ -106,15 +106,13 @@ func Parse2(sql string) (Statement, BindVars, error) {
 }
 
 func checkParserVersionFlag() {
-	if flag.Parsed() {
-		versionFlagSync.Do(func() {
-			convVersion, err := convertMySQLVersionToCommentVersion(servenv.MySQLServerVersion())
-			if err != nil {
-				log.Fatalf("unable to parse mysql version: %v", err)
-			}
-			mySQLParserVersion = convVersion
-		})
-	}
+	versionFlagSync.Do(func() {
+		convVersion, err := convertMySQLVersionToCommentVersion(defaultMySQLServerVersion)
+		if err != nil {
+			log.Fatalf("unable to parse mysql version: %v", err)
+		}
+		mySQLParserVersion = convVersion
+	})
 }
 
 // SetParserVersion sets the mysql parser version
