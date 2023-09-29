@@ -1,0 +1,46 @@
+# Compiled Object files, Static and Dynamic libs (Shared Objects)
+*.py[cod]
+
+# For mac users
+.DS_Store
+
+# For direnv users
+.envrc
+
+# Produced by yacc
+*.output
+
+# vim files
+*.swp
+tags
+
+# emacs
+*~
+
+# Eclipse files
+.classpath
+.project
+.pydevproject
+.settings/
+
+# intellij files
+*.iml
+.idea
+
+# vscode
+.vscode/
+__debug_bin
+
+# C build dirs
+**/build
+
+# Godeps files
+/Godeps/_workspace/pkg
+/Godeps/_workspace/bin
+
+# test.go output files
+_test/
+/test/stats.json
+
+# Go vendored libs
+/vendor/*/

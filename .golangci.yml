@@ -1,0 +1,41 @@
+run:
+  go: 1.20
+  timeout: 10m
+
+linters-settings:
+  errcheck:
+    exclude: ./misc/errcheck_excludes.txt
+  goimports:
+    local-prefixes: vitess.io/vitess
+  govet:
+    disable: # not supported when using Generics in 1.18
+      - nilness
+      - unusedwrite
+
+linters:
+  disable-all: true
+  enable:
+    # Defaults
+    - errcheck
+    - govet
+    - ineffassign
+    - typecheck
+    - staticcheck
+    - gosimple
+
+    # Extras
+    - gofmt
+    - goimports
+    - exportloopref
+    - bodyclose
+
+    # revive is a replacement for golint, but we do not run it in CI for now.
+    # This is only enabled as a post-commit hook
+    # - revive
+
+issues:
+  exclude-rules:
+
+# https://github.com/golangci/golangci/wiki/Configuration
+service:
+  golangci-lint-version: 1.52.2 # use the fixed version to not introduce new linters unexpectedly
