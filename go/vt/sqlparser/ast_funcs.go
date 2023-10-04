@@ -1931,9 +1931,17 @@ func (node *ColName) CompliantName() string {
 func isExprAliasForCurrentTimeStamp(expr Expr) bool {
 	switch node := expr.(type) {
 	case *FuncExpr:
-		return node.Name.EqualString("current_timestamp") || node.Name.EqualString("now") || node.Name.EqualString("localtimestamp") || node.Name.EqualString("localtime")
+		return node.Name.EqualString("current_date") || node.Name.EqualString("curdate")
 	case *CurTimeFuncExpr:
-		return node.Name.EqualString("current_timestamp") || node.Name.EqualString("now") || node.Name.EqualString("localtimestamp") || node.Name.EqualString("localtime")
+		return node.Name.EqualString("current_timestamp") ||
+			node.Name.EqualString("localtime") ||
+			node.Name.EqualString("localtimestamp") ||
+			node.Name.EqualString("utc_timestamp") ||
+			node.Name.EqualString("now") ||
+			node.Name.EqualString("sysdate") ||
+			node.Name.EqualString("utc_time") ||
+			node.Name.EqualString("current_time") ||
+			node.Name.EqualString("curtime")
 	}
 	return false
 }

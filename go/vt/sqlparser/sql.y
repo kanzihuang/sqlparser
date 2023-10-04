@@ -1640,6 +1640,29 @@ CURRENT_TIMESTAMP func_datetime_precision
   {
     $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("sysdate"), Fsp: $2}
   }
+  // curdate
+/* doesn't support fsp */
+| CURRENT_DATE func_paren_opt
+  {
+    $$ = &FuncExpr{Name:NewIdentifierCI("current_date")}
+  }
+| CURDATE func_paren_opt
+  {
+    $$ = &FuncExpr{Name:NewIdentifierCI("curdate")}
+  }
+| UTC_TIME func_datetime_precision
+  {
+    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("utc_time"), Fsp: $2}
+  }
+  // curtime
+| CURRENT_TIME func_datetime_precision
+  {
+    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("current_time"), Fsp: $2}
+  }
+| CURTIME func_datetime_precision
+  {
+    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("curtime"), Fsp: $2}
+  }
 
 signed_literal_or_null:
 signed_literal
@@ -5889,30 +5912,6 @@ UTC_DATE func_paren_opt
 | now
   {
   	$$ = $1
-  }
-  // curdate
-/* doesn't support fsp */
-| CURRENT_DATE func_paren_opt
-  {
-    $$ = &FuncExpr{Name:NewIdentifierCI("current_date")}
-  }
-| CURDATE func_paren_opt
-  {
-    $$ = &FuncExpr{Name:NewIdentifierCI("curdate")}
-  }
-| UTC_TIME func_datetime_precision
-  {
-    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("utc_time"), Fsp: $2}
-  }
-  // curtime
-| CURTIME func_datetime_precision
-  {
-    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("curtime"), Fsp: $2}
-  }
-  // curtime
-| CURRENT_TIME func_datetime_precision
-  {
-    $$ = &CurTimeFuncExpr{Name:NewIdentifierCI("current_time"), Fsp: $2}
   }
 | COUNT openb '*' closeb
   {
