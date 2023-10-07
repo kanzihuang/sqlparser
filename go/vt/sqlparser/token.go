@@ -586,10 +586,10 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 			return LEX_ERROR, sb.String()
 
 		default:
-			tkn.next()
 			if tkn.buf.HalfFull() {
 				sb.WriteString(tkn.buf.Read())
 			}
+			tkn.next()
 		}
 	}
 }
@@ -612,6 +612,9 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 				ch = tkn.cur()
 				if ch == delim || ch == '\\' || ch == eofChar {
 					break
+				}
+				if tkn.buf.HalfFull() {
+					buffer.WriteString(tkn.buf.Read())
 				}
 				tkn.next()
 			}

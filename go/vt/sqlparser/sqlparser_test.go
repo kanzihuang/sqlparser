@@ -104,9 +104,15 @@ func Test_ParseNext_WithLongString(t *testing.T) {
 	for i := 0; i < times; i++ {
 		sb.WriteString("0123456789")
 	}
+	sb.WriteString("', '\\n")
+	for i := 0; i < times; i++ {
+		sb.WriteString("0123456789")
+	}
 	sb.WriteString("' from tbl")
 	token := NewReaderTokenizer(strings.NewReader(sb.String()))
-	stmt, err := ParseNext(token)
-	require.NoError(t, err)
-	require.Equal(t, sb.String(), String(stmt))
+	require.NotPanics(t, func() {
+		stmt, err := ParseNext(token)
+		require.NoError(t, err)
+		require.Equal(t, sb.String(), String(stmt))
+	})
 }
