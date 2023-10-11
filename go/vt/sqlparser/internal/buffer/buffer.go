@@ -1,6 +1,7 @@
-package internal
+package buffer
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -16,6 +17,7 @@ type Buffer struct {
 	start  int
 	pos    int
 	eof    bool
+	cache  *bytes.Buffer
 }
 
 func NewStringBuffer(sql string) *Buffer {
@@ -27,9 +29,30 @@ func NewStringBuffer(sql string) *Buffer {
 	return buf
 }
 
-func NewReaderBuffer(reader io.Reader) *Buffer {
+type BufferOpt func(*Buffer)
+
+func WithCache() BufferOpt {
+	return func(buffer *Buffer) {
+		if buffer.cache == nil {
+			buffer.cache = &bytes.Buffer{}
+		}
+	}
+}
+
+func WithoutCache() BufferOpt {
+	return func(buffer *Buffer) {
+		if buffer.cache != nil {
+			buffer.cache = nil
+		}
+	}
+}
+
+func NewReaderBuffer(reader io.Reader, opts ...BufferOpt) *Buffer {
 	buf := &Buffer{
 		reader: reader,
+	}
+	for _, opt := range opts {
+		opt(buf)
 	}
 	return buf
 }
@@ -62,6 +85,9 @@ func (tb *Buffer) Peek(dist int) uint16 {
 
 func (tb *Buffer) Skip(dist int) {
 	tb.pos += dist
+	if tb.cache != nil {
+		tb.cache.Write(tb.buf[tb.start:tb.pos])
+	}
 	tb.start = tb.pos
 }
 
@@ -69,18 +95,33 @@ func (tb *Buffer) HalfFull() bool {
 	return tb.pos-tb.start > defaultBufferSize/2
 }
 
-func (tb *Buffer) Read() string {
+func (tb *Buffer) ReadBuffer() string {
 	pos := tb.pos
 	if pos > len(tb.buf) {
 		pos = len(tb.buf)
 	}
-	result := string(tb.buf[tb.start:pos])
+	result := tb.buf[tb.start:pos]
 	tb.start = tb.pos
+	if tb.cache != nil {
+		tb.cache.Write(result)
+	}
+	return string(result)
+}
+
+func (tb *Buffer) ReadCache() string {
+	if tb.cache == nil {
+		panic("read from null cache of in tokenizer buffer")
+	}
+	result := tb.cache.String()
+	tb.cache.Reset()
 	return result
 }
 
-func (tb *Buffer) Back(dist int) {
-	tb.start -= dist
+func (tb *Buffer) ResetCache() {
+	if tb.cache == nil {
+		panic("reset from null cache of in tokenizer buffer")
+	}
+	tb.cache.Reset()
 }
 
 func (tb *Buffer) Next() {
@@ -97,16 +138,6 @@ func (tb *Buffer) load() error {
 	if size < defaultBufferSize {
 		size = defaultBufferSize
 	}
-	//if tb.pos-tb.start > size/2 {
-	//	if len(buf) >= maxBufferSize {
-	//		return errors.New(fmt.Sprintf("sqlparser: too long token(greater than %d): %s...%s",
-	//			tb.pos-tb.start, tb.buf[:tb.start+32], tb.buf[tb.pos-32:]))
-	//	}
-	//	size <<= 1
-	//	if size > maxBufferSize {
-	//		size = maxBufferSize
-	//	}
-	//}
 	if size > len(buf) {
 		buf = make([]byte, size)
 	}
@@ -133,22 +164,4 @@ func (tb *Buffer) load() error {
 		}
 	}
 	return nil
-}
-
-func (tb *Buffer) reset() {
-	if tb.reader == nil {
-		return
-	}
-	size := len(tb.buf)
-	if tb.pos < 0 || tb.pos > size {
-		panic("sqlparser: invalid buffer position")
-	}
-	if tb.start == 0 {
-		return
-	}
-	copy(tb.buf, tb.buf[tb.start:size])
-	tb.pos -= tb.start
-	tb.offset += tb.start
-	tb.start = 0
-	return
 }

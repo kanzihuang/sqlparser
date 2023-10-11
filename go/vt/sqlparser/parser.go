@@ -202,6 +202,7 @@ func ParseTokenizer(tokenizer *Tokenizer) int {
 // The tokenizer will always read up to the end of the statement, allowing for
 // the next call to ParseNext to parse any subsequent SQL statements. When
 // there are no more statements to parse, a error of io.EOF is returned.
+// WithBufferCache()(tokenizer) should not be called to avoid unnecessary memory usage
 func ParseNext(tokenizer *Tokenizer) (Statement, error) {
 	return parseNext(tokenizer, false)
 }

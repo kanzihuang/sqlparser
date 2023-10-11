@@ -18,11 +18,10 @@ package sqlparser
 
 import (
 	"fmt"
-	"github.com/kanzihuang/vitess/go/vt/sqlparser/internal"
+	"github.com/kanzihuang/vitess/go/vt/sqlparser/internal/buffer"
 	"io"
 	"strconv"
 	"strings"
-
 	"vitess.io/vitess/go/sqltypes"
 )
 
@@ -46,7 +45,7 @@ type Tokenizer struct {
 	multi          bool
 	specialComment *Tokenizer
 
-	buf *internal.Buffer
+	buf *buffer.Buffer
 }
 
 // NewStringTokenizer creates a new Tokenizer for the
@@ -55,20 +54,32 @@ func NewStringTokenizer(sql string) *Tokenizer {
 	checkParserVersionFlag()
 
 	return &Tokenizer{
-		buf:      internal.NewStringBuffer(sql),
+		buf:      buffer.NewStringBuffer(sql),
 		BindVars: make(map[string]struct{}),
+	}
+}
+
+type TokenizerOpt func(*Tokenizer)
+
+func WithBufferCache() TokenizerOpt {
+	return func(tokenizer *Tokenizer) {
+		buffer.WithCache()(tokenizer.buf)
 	}
 }
 
 // NewReaderTokenizer creates a new Tokenizer for the
 // sql reader.
-func NewReaderTokenizer(reader io.Reader) *Tokenizer {
+func NewReaderTokenizer(reader io.Reader, opts ...TokenizerOpt) *Tokenizer {
 	checkParserVersionFlag()
 
-	return &Tokenizer{
-		buf:      internal.NewReaderBuffer(reader),
+	tokenizer := &Tokenizer{
+		buf:      buffer.NewReaderBuffer(reader),
 		BindVars: make(map[string]struct{}),
 	}
+	for _, opt := range opts {
+		opt(tokenizer)
+	}
+	return tokenizer
 }
 
 // Lex returns the next token form the Tokenizer.
@@ -350,7 +361,7 @@ func (tkn *Tokenizer) scanIdentifier(isVariable bool) (int, string) {
 			break
 		}
 	}
-	keywordName := tkn.read()
+	keywordName := tkn.readBuffer()
 	if keywordID, found := keywordLookupTable.LookupString(keywordName); found {
 		return keywordID, keywordName
 	}
@@ -364,7 +375,7 @@ func (tkn *Tokenizer) scanIdentifier(isVariable bool) (int, string) {
 // scanHex scans a hex numeral; assumes x' or X' has already been scanned
 func (tkn *Tokenizer) scanHex() (int, string) {
 	tkn.scanMantissa(16)
-	hex := tkn.read()
+	hex := tkn.readBuffer()
 	if tkn.cur() != '\'' {
 		return LEX_ERROR, hex
 	}
@@ -378,7 +389,7 @@ func (tkn *Tokenizer) scanHex() (int, string) {
 // scanBitLiteral scans a binary numeric literal; assumes b' or B' has already been scanned
 func (tkn *Tokenizer) scanBitLiteral() (int, string) {
 	tkn.scanMantissa(2)
-	bit := tkn.read()
+	bit := tkn.readBuffer()
 	if tkn.cur() != '\'' {
 		return LEX_ERROR, bit
 	}
@@ -428,7 +439,7 @@ func (tkn *Tokenizer) scanLiteralIdentifier() (int, string) {
 		switch tkn.cur() {
 		case '`':
 			if tkn.peek(1) != '`' {
-				id := tkn.read()
+				id := tkn.readBuffer()
 				if len(id) == 0 {
 					return LEX_ERROR, ""
 				}
@@ -437,12 +448,12 @@ func (tkn *Tokenizer) scanLiteralIdentifier() (int, string) {
 			}
 
 			var buf strings.Builder
-			buf.WriteString(tkn.read())
+			buf.WriteString(tkn.readBuffer())
 			tkn.skip(1)
 			return tkn.scanLiteralIdentifierSlow(&buf)
 		case eofChar:
 			// Premature EOF.
-			return LEX_ERROR, tkn.read()
+			return LEX_ERROR, tkn.readBuffer()
 		default:
 			tkn.next()
 		}
@@ -457,7 +468,7 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 	// If : is followed by a digit, then it is an offset value arg. Example - :1, :10
 	if isDigit(tkn.cur()) {
 		tkn.scanMantissa(10)
-		return OFFSET_ARG, tkn.read()[1:]
+		return OFFSET_ARG, tkn.readBuffer()[1:]
 	}
 
 	// If : is followed by a =, then it is an assignment operator
@@ -472,7 +483,7 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 		tkn.next()
 	}
 	if !isLetter(tkn.cur()) {
-		return LEX_ERROR, tkn.read()
+		return LEX_ERROR, tkn.readBuffer()
 	}
 	// If : is followed by a letter, it is a bindvariable. Example :v1, :v2
 	for {
@@ -482,7 +493,7 @@ func (tkn *Tokenizer) scanBindVarOrAssignmentExpression() (int, string) {
 		}
 		tkn.next()
 	}
-	return token, tkn.read()
+	return token, tkn.readBuffer()
 }
 
 // scanMantissa scans a sequence of numeric characters with the same base.
@@ -544,7 +555,7 @@ exit:
 		// A letter cannot immediately follow a float number.
 		if token == FLOAT || token == DECIMAL {
 			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
-			return LEX_ERROR, tkn.read()
+			return LEX_ERROR, tkn.readBuffer()
 		}
 		// A letter seen after a few numbers means that we should parse this
 		// as an identifier and not a number.
@@ -555,10 +566,10 @@ exit:
 			}
 			tkn.next()
 		}
-		return ID, tkn.read()
+		return ID, tkn.readBuffer()
 	}
 
-	return token, tkn.read()
+	return token, tkn.readBuffer()
 }
 
 // scanString scans a string surrounded by the given `delim`, which can be
@@ -571,23 +582,23 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 		switch char := tkn.cur(); char {
 		case delim:
 			if tkn.peek(1) != delim {
-				sb.WriteString(tkn.read())
+				sb.WriteString(tkn.readBuffer())
 				tkn.skip(1)
 				return typ, sb.String()
 			}
 			fallthrough
 
 		case '\\':
-			sb.WriteString(tkn.buf.Read())
+			sb.WriteString(tkn.buf.ReadBuffer())
 			return tkn.scanStringSlow(&sb, delim, typ)
 
 		case eofChar:
-			sb.WriteString(tkn.buf.Read())
+			sb.WriteString(tkn.buf.ReadBuffer())
 			return LEX_ERROR, sb.String()
 
 		default:
 			if tkn.buf.HalfFull() {
-				sb.WriteString(tkn.buf.Read())
+				sb.WriteString(tkn.buf.ReadBuffer())
 			}
 			tkn.next()
 		}
@@ -614,12 +625,12 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 					break
 				}
 				if tkn.buf.HalfFull() {
-					buffer.WriteString(tkn.buf.Read())
+					buffer.WriteString(tkn.buf.ReadBuffer())
 				}
 				tkn.next()
 			}
 
-			buffer.WriteString(tkn.read())
+			buffer.WriteString(tkn.readBuffer())
 			if ch == eofChar {
 				// Reached the end of the buffer without finding a delim or
 				// escape character.
@@ -665,7 +676,7 @@ func (tkn *Tokenizer) scanCommentType1() (int, string) {
 		}
 		tkn.next()
 	}
-	return COMMENT, tkn.read()
+	return COMMENT, tkn.readBuffer()
 }
 
 // scanCommentType2 scans a '/*' delimited comment; assumes the opening
@@ -682,11 +693,11 @@ func (tkn *Tokenizer) scanCommentType2() (int, string) {
 		}
 		if tkn.cur() == eofChar {
 			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
-			return LEX_ERROR, tkn.read()
+			return LEX_ERROR, tkn.readBuffer()
 		}
 		tkn.next()
 	}
-	return COMMENT, tkn.read()
+	return COMMENT, tkn.readBuffer()
 }
 
 // scanMySQLSpecificComment scans a MySQL comment pragma, which always starts with '//*`
@@ -702,12 +713,12 @@ func (tkn *Tokenizer) scanMySQLSpecificComment() (int, string) {
 		}
 		if tkn.cur() == eofChar {
 			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
-			return LEX_ERROR, tkn.read()
+			return LEX_ERROR, tkn.readBuffer()
 		}
 		tkn.next()
 	}
 
-	commentVersion, sql := ExtractMysqlComment(tkn.read())
+	commentVersion, sql := ExtractMysqlComment(tkn.readBuffer())
 
 	if mySQLParserVersion >= commentVersion {
 		// Only add the special comment to the tokenizer if the version of MySQL is higher or equal to the comment version
