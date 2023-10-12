@@ -349,11 +349,7 @@ func (tkn *Tokenizer) skipStatement() int {
 
 // skipBlank skips the cursor while it finds whitespace
 func (tkn *Tokenizer) skipBlank() {
-	ch := tkn.cur()
-	for ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' {
-		tkn.skip(1)
-		ch = tkn.cur()
-	}
+	tkn.buf.SkipBlank()
 }
 
 // scanIdentifier scans a language keyword or @-encased variable

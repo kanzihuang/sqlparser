@@ -43,6 +43,10 @@ func (tkn *Tokenizer) absoluteStart() int {
 
 func scanProcedureBody(tokenizer *Tokenizer, tagName string) (string, error) {
 	var sb strings.Builder
+	tokenizer.buf.CacheBlanks = true
+	defer func() {
+		tokenizer.buf.CacheBlanks = false
+	}()
 loop:
 	for {
 		tkn, val := tokenizer.Scan()
@@ -104,5 +108,5 @@ loop:
 	if sb.Len() == 0 {
 		return "", io.EOF
 	}
-	return sb.String(), nil
+	return strings.TrimSpace(sb.String()), nil
 }

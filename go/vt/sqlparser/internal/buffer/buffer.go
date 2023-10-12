@@ -19,6 +19,7 @@ type Buffer struct {
 	eof         bool
 	cache       *bytes.Buffer
 	cacheOffset int
+	CacheBlanks bool
 }
 
 func NewStringBuffer(sql string) *Buffer {
@@ -85,11 +86,33 @@ func (tb *Buffer) Peek(dist int) uint16 {
 }
 
 func (tb *Buffer) Skip(dist int) {
-	tb.pos += dist
 	if tb.cache != nil {
-		tb.cache.Write(tb.buf[tb.start:tb.pos])
+		tb.cache.Write(tb.buf[tb.start : tb.pos+dist])
 	}
+	tb.skip(dist)
+}
+
+func (tb *Buffer) skip(dist int) {
+	tb.pos += dist
 	tb.start = tb.pos
+}
+
+// SkipBlank skips the cursor while it finds whitespace
+func (tb *Buffer) SkipBlank() {
+	ch := tb.Cur()
+	first := true
+	for ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t' {
+		if tb.cache != nil {
+			if tb.CacheBlanks {
+				tb.cache.WriteByte(tb.buf[tb.pos])
+			} else if first {
+				tb.cache.WriteByte(' ')
+				first = false
+			}
+		}
+		tb.skip(1)
+		ch = tb.Cur()
+	}
 }
 
 func (tb *Buffer) HalfFull() bool {
