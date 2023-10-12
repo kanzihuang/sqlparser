@@ -1,6 +1,9 @@
 package sqlparser
 
-import "io"
+import (
+	"io"
+	"strings"
+)
 
 func (tkn *Tokenizer) cur() uint16 {
 	return tkn.buf.Cur()
@@ -38,37 +41,68 @@ func (tkn *Tokenizer) absoluteStart() int {
 	return tkn.buf.AbsoluteStart()
 }
 
-// SplitNext returns the next sql statement or EOF.
-// WithBufferCache()(tokenizer) must be called before SplitNext.
-func SplitNext(tokenizer *Tokenizer) (string, error) {
-	var statement string
-	tkn := 0
-	emptyStatement := true
+func scanProcedureBody(tokenizer *Tokenizer, tagName string) (string, error) {
+	var sb strings.Builder
 loop:
 	for {
-		tkn, _ = tokenizer.Scan()
+		tkn, val := tokenizer.Scan()
 		switch tkn {
-		case ';':
-			if !emptyStatement {
-				statement = tokenizer.readCache()
-				statement = statement[:len(statement)-1]
+		case 0, eofChar:
+			break loop
+		case ID:
+			sb.WriteString(tokenizer.readCache())
+			if val == tagName {
 				break loop
 			}
-			tokenizer.resetCache()
-		case 0, eofChar:
-			if !emptyStatement {
-				statement = tokenizer.readCache()
-			}
-			break loop
 		default:
-			emptyStatement = false
+			sb.WriteString(tokenizer.readCache())
 		}
 	}
 	if tokenizer.LastError != nil {
 		return "", tokenizer.LastError
 	}
-	if len(statement) == 0 {
+	if sb.Len() == 0 {
 		return "", io.EOF
 	}
-	return statement, nil
+	return sb.String(), nil
+}
+
+// SplitNext returns the next sql statement or EOF.
+// WithCacheInBuffer()(tokenizer) must be called before SplitNext.
+func SplitNext(tokenizer *Tokenizer) (string, error) {
+	var sb strings.Builder
+loop:
+	for {
+		tkn, val := tokenizer.Scan()
+		switch tkn {
+		case COMMENT:
+			tokenizer.resetCache()
+		case ';':
+			tokenizer.resetCache()
+			if sb.Len() > 0 {
+				break loop
+			}
+		case 0, eofChar:
+			break loop
+		case ID:
+			if len(val) > 1 && val[0] == '$' && val[len(val)-1] == '$' {
+				body, err := scanProcedureBody(tokenizer, val)
+				if err != nil {
+					break loop
+				}
+				sb.WriteString(body)
+				break
+			}
+			sb.WriteString(tokenizer.readCache())
+		default:
+			sb.WriteString(tokenizer.readCache())
+		}
+	}
+	if tokenizer.LastError != nil {
+		return "", tokenizer.LastError
+	}
+	if sb.Len() == 0 {
+		return "", io.EOF
+	}
+	return sb.String(), nil
 }

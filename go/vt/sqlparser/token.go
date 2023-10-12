@@ -48,23 +48,27 @@ type Tokenizer struct {
 	buf *buffer.Buffer
 }
 
-// NewStringTokenizer creates a new Tokenizer for the
-// sql string.
-func NewStringTokenizer(sql string) *Tokenizer {
-	checkParserVersionFlag()
-
-	return &Tokenizer{
-		buf:      buffer.NewStringBuffer(sql),
-		BindVars: make(map[string]struct{}),
-	}
-}
-
 type TokenizerOpt func(*Tokenizer)
 
-func WithBufferCache() TokenizerOpt {
+func WithCacheInBuffer() TokenizerOpt {
 	return func(tokenizer *Tokenizer) {
 		buffer.WithCache()(tokenizer.buf)
 	}
+}
+
+// NewStringTokenizer creates a new Tokenizer for the
+// sql string.
+func NewStringTokenizer(sql string, opts ...TokenizerOpt) *Tokenizer {
+	checkParserVersionFlag()
+
+	tokenizer := &Tokenizer{
+		buf:      buffer.NewStringBuffer(sql),
+		BindVars: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(tokenizer)
+	}
+	return tokenizer
 }
 
 // NewReaderTokenizer creates a new Tokenizer for the
@@ -554,7 +558,6 @@ exit:
 	if isLetter(tkn.cur()) {
 		// A letter cannot immediately follow a float number.
 		if token == FLOAT || token == DECIMAL {
-			//return LEX_ERROR, tkn.buf[start:tkn.Pos]
 			return LEX_ERROR, tkn.readBuffer()
 		}
 		// A letter seen after a few numbers means that we should parse this

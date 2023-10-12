@@ -729,13 +729,13 @@ func TestSplitStatementToPieces(t *testing.T) {
 		output: "select * from table1; select * from table2",
 	}, {
 		input:  "select * from /* comment ; */ table;",
-		output: "select * from /* comment ; */ table",
+		output: "select * from table",
 	}, {
 		input:  "select * from table where semi = ';';",
 		output: "select * from table where semi = ';'",
 	}, {
-		input:  "select * from table1;--comment;\nselect * from table2;",
-		output: "select * from table1;--comment;\nselect * from table2",
+		input:  "select * from table1;-- comment;\nselect * from table2;",
+		output: "select * from table1;select * from table2",
 	}, {
 		input: "CREATE TABLE `total_data` (`id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'id', " +
 			"`region` varchar(32) NOT NULL COMMENT 'region name, like zh; th; kepler'," +

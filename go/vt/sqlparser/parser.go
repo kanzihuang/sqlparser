@@ -202,7 +202,7 @@ func ParseTokenizer(tokenizer *Tokenizer) int {
 // The tokenizer will always read up to the end of the statement, allowing for
 // the next call to ParseNext to parse any subsequent SQL statements. When
 // there are no more statements to parse, a error of io.EOF is returned.
-// WithBufferCache()(tokenizer) should not be called to avoid unnecessary memory usage
+// WithCacheInBuffer()(tokenizer) should not be called to avoid unnecessary memory usage
 func ParseNext(tokenizer *Tokenizer) (Statement, error) {
 	return parseNext(tokenizer, false)
 }
@@ -263,7 +263,7 @@ func SplitStatement(blob string) (string, string, error) {
 
 // SplitStatementToPieces split raw sql statement that may have multi sql pieces to sql pieces
 // returns the sql pieces blob contains; or error if sql cannot be parsed
-func SplitStatementToPieces(blob string) (pieces []string, err error) {
+func SplitStatementToPieces(blob string) ([]string, error) {
 	// fast path: the vast majority of SQL statements do not have semicolons in them
 	if blob == "" {
 		return nil, nil
@@ -275,40 +275,18 @@ func SplitStatementToPieces(blob string) (pieces []string, err error) {
 		return []string{blob[:len(blob)-1]}, nil
 	}
 
-	pieces = make([]string, 0, 16)
+	pieces := make([]string, 0, 16)
 	tokenizer := NewStringTokenizer(blob)
-
-	tkn := 0
-	var stmt string
-	stmtBegin := 0
-	emptyStatement := true
-loop:
 	for {
-		tkn, _ = tokenizer.Scan()
-		switch tkn {
-		case ';':
-			stmt = blob[stmtBegin : tokenizer.absoluteStart()-1]
-			if !emptyStatement {
-				pieces = append(pieces, stmt)
-				emptyStatement = true
-			}
-			stmtBegin = tokenizer.absoluteStart()
-		case 0, eofChar:
-			blobTail := tokenizer.absoluteStart() - 1
-			if stmtBegin < blobTail {
-				stmt = blob[stmtBegin : blobTail+1]
-				if !emptyStatement {
-					pieces = append(pieces, stmt)
-				}
-			}
-			break loop
-		default:
-			emptyStatement = false
+		stmt, err := SplitNext(tokenizer)
+		if err == io.EOF {
+			return pieces, nil
 		}
+		if err != nil {
+			return nil, err
+		}
+		pieces = append(pieces, stmt)
 	}
-
-	err = tokenizer.LastError
-	return
 }
 
 func IsMySQL80AndAbove() bool {

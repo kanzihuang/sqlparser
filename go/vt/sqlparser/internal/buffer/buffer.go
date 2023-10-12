@@ -11,13 +11,14 @@ const (
 )
 
 type Buffer struct {
-	reader io.Reader
-	offset int
-	buf    []byte
-	start  int
-	pos    int
-	eof    bool
-	cache  *bytes.Buffer
+	reader      io.Reader
+	offset      int
+	buf         []byte
+	start       int
+	pos         int
+	eof         bool
+	cache       *bytes.Buffer
+	cacheOffset int
 }
 
 func NewStringBuffer(sql string) *Buffer {
@@ -109,15 +110,26 @@ func (tb *Buffer) ReadBuffer() string {
 }
 
 func (tb *Buffer) ReadCache() string {
+	if tb.cache == nil && tb.reader == nil {
+		result := string(tb.buf[tb.cacheOffset:tb.AbsolutePos()])
+		tb.cacheOffset = tb.AbsolutePos()
+		return result
+	}
+
 	if tb.cache == nil {
 		panic("read from null cache of in tokenizer buffer")
 	}
+
 	result := tb.cache.String()
 	tb.cache.Reset()
 	return result
 }
 
 func (tb *Buffer) ResetCache() {
+	if tb.cache == nil && tb.reader == nil {
+		tb.cacheOffset = tb.AbsolutePos()
+		return
+	}
 	if tb.cache == nil {
 		panic("reset from null cache of in tokenizer buffer")
 	}
