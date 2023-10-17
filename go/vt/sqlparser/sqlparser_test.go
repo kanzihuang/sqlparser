@@ -9,11 +9,24 @@ import (
 
 func Test_ParseNext(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  string
-		err   string
+		name    string
+		dialect Dialect
+		input   string
+		want    string
+		err     string
 	}{
+		{
+			name:    "mysql select '\\\\\\'hello'''",
+			input:   "select '\\\\\\'hello''' from dual",
+			want:    "select '\\\\\\'hello\\'' from dual",
+			dialect: MysqlDialect{},
+		},
+		{
+			name:    "postgres select '\\''hello'''",
+			input:   "select '\\''hello''' from dual",
+			want:    "select '\\\\\\'\\'hello\\'\\'' from dual",
+			dialect: PostgresDialect{},
+		},
 		{
 			name:  "create table `my-table`",
 			input: "create table `my-table` (\n\t`my-id` bigint(20)\n)",
@@ -30,7 +43,10 @@ func Test_ParseNext(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			tokens := NewReaderTokenizer(strings.NewReader(test.input))
+			if test.dialect == nil {
+				test.dialect = MysqlDialect{}
+			}
+			tokens := NewReaderTokenizer(strings.NewReader(test.input), WithDialect(test.dialect))
 			tree, err := ParseNext(tokens)
 			if len(test.err) > 0 {
 				require.Error(t, err)

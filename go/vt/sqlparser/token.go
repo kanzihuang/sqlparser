@@ -45,7 +45,8 @@ type Tokenizer struct {
 	multi          bool
 	specialComment *Tokenizer
 
-	buf *buffer.Buffer
+	buf     *buffer.Buffer
+	dialect Dialect
 }
 
 type TokenizerOpt func(*Tokenizer)
@@ -53,6 +54,12 @@ type TokenizerOpt func(*Tokenizer)
 func WithCacheInBuffer() TokenizerOpt {
 	return func(tokenizer *Tokenizer) {
 		buffer.WithCache()(tokenizer.buf)
+	}
+}
+
+func WithDialect(dialect Dialect) TokenizerOpt {
+	return func(tokenizer *Tokenizer) {
+		tokenizer.dialect = dialect
 	}
 }
 
@@ -64,6 +71,7 @@ func NewStringTokenizer(sql string, opts ...TokenizerOpt) *Tokenizer {
 	tokenizer := &Tokenizer{
 		buf:      buffer.NewStringBuffer(sql),
 		BindVars: make(map[string]struct{}),
+		dialect:  MysqlDialect{},
 	}
 	for _, opt := range opts {
 		opt(tokenizer)
@@ -79,6 +87,7 @@ func NewReaderTokenizer(reader io.Reader, opts ...TokenizerOpt) *Tokenizer {
 	tokenizer := &Tokenizer{
 		buf:      buffer.NewReaderBuffer(reader),
 		BindVars: make(map[string]struct{}),
+		dialect:  MysqlDialect{},
 	}
 	for _, opt := range opts {
 		opt(tokenizer)
@@ -585,11 +594,15 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 				tkn.skip(1)
 				return typ, sb.String()
 			}
-			fallthrough
+			tkn.next()
+			tkn.next()
 
 		case '\\':
 			sb.WriteString(tkn.buf.ReadBuffer())
-			return tkn.scanStringSlow(&sb, delim, typ)
+			if tkn.dialect.EscapingBackslash() {
+				return tkn.scanStringSlow(&sb, delim, typ)
+			}
+			tkn.next()
 
 		case eofChar:
 			sb.WriteString(tkn.buf.ReadBuffer())
