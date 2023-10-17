@@ -595,14 +595,33 @@ func (tkn *Tokenizer) scanString(delim uint16, typ int) (int, string) {
 				return typ, sb.String()
 			}
 			tkn.next()
-			tkn.next()
+			sb.WriteString(tkn.buf.ReadBuffer())
+			tkn.skip(1)
 
 		case '\\':
-			sb.WriteString(tkn.buf.ReadBuffer())
 			if tkn.dialect.EscapingBackslash() {
-				return tkn.scanStringSlow(&sb, delim, typ)
+				var ch uint16
+				sb.WriteString(tkn.buf.ReadBuffer())
+				tkn.skip(1)
+				if tkn.cur() == eofChar {
+					// String terminates mid escape character.
+					return LEX_ERROR, sb.String()
+				}
+				// Preserve escaping of % and _
+				if tkn.cur() == '%' || tkn.cur() == '_' {
+					sb.WriteByte('\\')
+					ch = tkn.cur()
+				} else if decodedChar := sqltypes.SQLDecodeMap[byte(tkn.cur())]; decodedChar == sqltypes.DontEscape {
+					ch = tkn.cur()
+				} else {
+					ch = uint16(decodedChar)
+				}
+				sb.WriteByte(byte(ch))
+				tkn.skip(1)
+				//return tkn.scanStringSlow(&sb, delim, typ)
+			} else {
+				tkn.next()
 			}
-			tkn.next()
 
 		case eofChar:
 			sb.WriteString(tkn.buf.ReadBuffer())
@@ -652,6 +671,7 @@ func (tkn *Tokenizer) scanStringSlow(buffer *strings.Builder, delim uint16, typ 
 		tkn.skip(1) // Read one past the delim or escape character.
 
 		if ch == '\\' {
+			tkn.skip(1)
 			if tkn.cur() == eofChar {
 				// String terminates mid escape character.
 				return LEX_ERROR, buffer.String()

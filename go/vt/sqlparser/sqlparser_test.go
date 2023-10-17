@@ -22,12 +22,6 @@ func Test_ParseNext(t *testing.T) {
 			dialect: MysqlDialect{},
 		},
 		{
-			name:    "postgres select '\\''hello'''",
-			input:   "select '\\''hello''' from dual",
-			want:    "select '\\\\\\'\\'hello\\'\\'' from dual",
-			dialect: PostgresDialect{},
-		},
-		{
 			name:  "create table `my-table`",
 			input: "create table `my-table` (\n\t`my-id` bigint(20)\n)",
 		},

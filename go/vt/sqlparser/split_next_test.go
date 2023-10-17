@@ -119,8 +119,7 @@ t = "Nice to \\ meet you"
 u = r"Let''s have \ lunch"  // raw string
 </pre>
 <h2>Deprecated</h2>
-<p>This rule is deprecated, and will eventually be removed.</p>', NULL, NULL);
-select 1;`
+<p>This rule is deprecated, and will eventually be removed.</p>', NULL, NULL);select 1`
 
 func Test_SplitNext(t *testing.T) {
 	testcases := []struct {
