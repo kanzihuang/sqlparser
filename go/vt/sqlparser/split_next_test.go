@@ -17,11 +17,10 @@ limitations under the License.
 package sqlparser
 
 import (
+	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 const functionShowCreateTable = `CREATE OR REPLACE FUNCTION "public"."showcreatetable"("namespace" varchar, "tablename" varchar) RETURNS "pg_catalog"."varchar" AS $BODY$

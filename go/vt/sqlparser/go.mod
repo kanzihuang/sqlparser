@@ -6,6 +6,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.8.4
+	k8s.io/utils v0.0.0-20230115233650-391b47cb4029
 	vitess.io/vitess v0.17.3
 )
 
