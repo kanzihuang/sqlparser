@@ -243,8 +243,8 @@ var ErrEmpty = vterrors.NewErrorf(vtrpcpb.Code_INVALID_ARGUMENT, vterrors.EmptyQ
 
 // SplitStatement returns the first sql statement up to either a ; or EOF
 // and the remainder from the given buffer
-func SplitStatement(blob string) (string, string, error) {
-	tokenizer := NewStringTokenizer(blob)
+func SplitStatement(blob string, opts ...TokenizerOpt) (string, string, error) {
+	tokenizer := NewStringTokenizer(blob, opts...)
 	tkn := 0
 	for {
 		tkn, _ = tokenizer.Scan()
@@ -263,7 +263,7 @@ func SplitStatement(blob string) (string, string, error) {
 
 // SplitStatementToPieces split raw sql statement that may have multi sql pieces to sql pieces
 // returns the sql pieces blob contains; or error if sql cannot be parsed
-func SplitStatementToPieces(blob string) ([]string, error) {
+func SplitStatementToPieces(blob string, opts ...TokenizerOpt) ([]string, error) {
 	// fast path: the vast majority of SQL statements do not have semicolons in them
 	if blob == "" {
 		return nil, nil
@@ -276,7 +276,7 @@ func SplitStatementToPieces(blob string) ([]string, error) {
 	}
 
 	pieces := make([]string, 0, 16)
-	tokenizer := NewStringTokenizer(blob)
+	tokenizer := NewStringTokenizer(blob, opts...)
 	for {
 		stmt, err := SplitNext(tokenizer)
 		if err == io.EOF {

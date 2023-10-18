@@ -110,3 +110,30 @@ loop:
 	}
 	return strings.TrimSpace(sb.String()), nil
 }
+
+type Dialect interface {
+	iDialect()
+	EscapingBackslash() bool
+}
+
+var _ Dialect = MysqlDialect{}
+
+type MysqlDialect struct {
+}
+
+func (m MysqlDialect) EscapingBackslash() bool {
+	return true
+}
+
+func (m MysqlDialect) iDialect() {}
+
+var _ Dialect = PostgresDialect{}
+
+type PostgresDialect struct {
+}
+
+func (p PostgresDialect) EscapingBackslash() bool {
+	return false
+}
+
+func (p PostgresDialect) iDialect() {}
