@@ -17,11 +17,10 @@ limitations under the License.
 package sqlparser
 
 import (
+	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 const functionShowCreateTable = `CREATE OR REPLACE FUNCTION "public"."showcreatetable"("namespace" varchar, "tablename" varchar) RETURNS "pg_catalog"."varchar" AS $BODY$
@@ -104,13 +103,44 @@ const functionShowCreateTable = `CREATE OR REPLACE FUNCTION "public"."showcreate
         end
         $BODY$ LANGUAGE plpgsql VOLATILE COST 100`
 
+const insertIntoRuleDescSections = `INSERT INTO "public"."rule_desc_sections" VALUES ('AYq8jq9Zzf2mMqOTe-St', 'AYq8jq9Zzf2mMqOTe-Ss', 'default', '<p>Typically, backslashes are seen only as part of escape sequences. Therefore, the use of a backslash outside of a raw string or escape sequence
+looks suspiciously like a broken escape sequence.</p>
+<p>Characters recognized as escape-able are: <code>abfnrtvox\''"</code></p>
+<h2>Noncompliant Code Example</h2>
+<pre>
+s = "Hello \world."
+t = "Nice to \ meet you"
+u = "Let''s have \ lunch"
+</pre>
+<h2>Compliant Solution</h2>
+<pre>
+s = "Hello world."
+t = "Nice to \\ meet you"
+u = r"Let''s have \ lunch"  // raw string
+</pre>
+<h2>Deprecated</h2>
+<p>This rule is deprecated, and will eventually be removed.</p>', NULL, NULL);select 1`
+
 func Test_SplitNext(t *testing.T) {
 	testcases := []struct {
-		name   string
-		input  string
-		output string
-		count  int
+		name    string
+		input   string
+		output  string
+		count   int
+		dialect Dialect
 	}{
+		{
+			name:    "mysql select '\\'''",
+			input:   "select '\\\\\\'hello''';select 2",
+			count:   2,
+			dialect: MysqlDialect{},
+		},
+		{
+			name:    "postgres select '\\'''",
+			input:   "select '\\''hello''' from dual;select 2",
+			count:   2,
+			dialect: PostgresDialect{},
+		},
 		{
 			name:   "with blanks",
 			input:  "select * from `my-table`; \t; \n; \n\t\t ;select * from `my-table`;",
@@ -211,6 +241,12 @@ func Test_SplitNext(t *testing.T) {
 			input: functionShowCreateTable,
 			count: 1,
 		},
+		{
+			name:    "insert into rule_desc_sections",
+			input:   insertIntoRuleDescSections,
+			count:   2,
+			dialect: PostgresDialect{},
+		},
 	}
 
 	for _, tcase := range testcases {
@@ -218,7 +254,11 @@ func Test_SplitNext(t *testing.T) {
 			if tcase.output == "" {
 				tcase.output = tcase.input
 			}
-			tokenizer := NewReaderTokenizer(strings.NewReader(tcase.input), WithCacheInBuffer())
+			if tcase.dialect == nil {
+				tcase.dialect = MysqlDialect{}
+			}
+			tokenizer := NewReaderTokenizer(strings.NewReader(tcase.input),
+				WithCacheInBuffer(), WithDialect(tcase.dialect))
 			var sb strings.Builder
 			var i int
 			for {
